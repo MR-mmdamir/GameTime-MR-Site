@@ -1,0 +1,70 @@
+name: Publish GameTime MR website
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'GameTime_MR_Update_v6_Website.zip'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare static website
+        run: |
+          mkdir -p extracted public
+          unzip -q GameTime_MR_Update_v6_Website.zip -d extracted
+          test -f extracted/GameTime_MR/website/index.html
+          cp -R extracted/GameTime_MR/website/. public/
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("public/index.html")
+          s = p.read_text(encoding="utf-8")
+          s = s.replace("const API=(window.GAMETIME_API_URL||'http://localhost:4000').replace(/\\/$/,'');",
+                        "const API=(window.GAMETIME_API_URL||'').replace(/\\/$/,'');")
+          s = s.replace("async function call(path,opts={}){const r=await fetch(API+path,",
+                        "async function call(path,opts={}){if(!API)throw Error('سرویس آنلاین هنوز راه‌اندازی نشده است؛ فعلاً فقط پیش‌نمایش سایت در دسترس است.');const r=await fetch(API+path,")
+          marker = "<main>"
+          notice = '<main><div class="card" role="status">نسخه پیش‌نمایش سایت منتشر شده است؛ ورود، ثبت‌نام و امکانات آنلاین پس از راه‌اندازی سرور فعال می‌شوند.</div>'
+          if marker in s:
+              s = s.replace(marker, notice, 1)
+          p.write_text(s, encoding="utf-8")
+          Path("public/README.txt").write_text(
+              "GameTime MR website preview. Online API features remain disabled until a secure HTTPS backend and database are deployed.\n",
+              encoding="utf-8")
+          PY
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload website artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
